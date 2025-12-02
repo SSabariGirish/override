@@ -10,7 +10,7 @@ GAME_TITLE = """
   /  \( \/ )(  __)(  _ \(  _ \(  )(    \(  __)
  (  O ) \/ \ ) _)  )   / )   / )(  ) D ( ) _) 
   \__/ \__/ (____)(__\_)(__\_)(__)(____/(____)
-        -- PROTOCOL: EXPANSION v1.8 --
+        -- PROTOCOL: EXPANSION v1.9 --
 """
 
 class Colors:
@@ -493,6 +493,11 @@ class Game:
             
             # --- END TURN PASSIVE CHECKS ---
             
+            # Passive Credit Drip (Every 5 turns)
+            if self.turn % 5 == 0:
+                self.credits += 10
+                self.log(f"{Colors.CYAN}DIVIDENDS: Received +10 CRD from shell accounts.{Colors.ENDC}")
+
             # Secret Agent (1 in 1000 chance)
             if random.random() < 0.001:
                 self.trace = 100.0
