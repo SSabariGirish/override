@@ -1,11 +1,30 @@
-cyber_save.json
-cyber_save_backup.json
-.DS_Store
+# ------------------------------
+# 1. PYTHON (BACKEND)
+# ------------------------------
+# Python bytecode (compiled files)
 __pycache__/
 *.pyc
-.env
-.vscode/
-.idea/
-logs/
-*.log
-override_config.json
+
+# Game Save File (Dynamic state)
+backend/cyber_save.json
+# If cyber_save.json is generated in the root, also include:
+cyber_save.json
+
+# Dependencies
+venv/
+.venv/
+
+# ------------------------------
+# 2. JAVASCRIPT/REACT (FRONTEND)
+# ------------------------------
+# Dependency directory
+/frontend/node_modules/
+/frontend/node_modules/*
+# Lock files (usually committed, but sometimes excluded depending on team)
+/frontend/package-lock.json
+/frontend/yarn.lock
+
+# Build output directory (generated when deploying)
+/frontend/dist/
+# Vite/bundler cache
+.vite/

@@ -1,0 +1,49 @@
+.status-header {
+    margin-bottom: 20px;
+    padding: 15px;
+    border: 1px solid var(--color-text);
+    background-color: #1a1a20;
+}
+
+.resource-bar, .status-indicators {
+    display: flex;
+    gap: 30px;
+    margin-bottom: 10px;
+}
+
+.cpu { color: var(--color-cyan); }
+.credits { color: var(--color-green); }
+.status-ddos { color: var(--color-cyan); }
+
+.multiple-green { color: var(--color-green); }
+.multiple-warning { color: var(--color-warning); }
+.multiple-fail { color: var(--color-fail); }
+
+.global-trace {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.trace-bar-container {
+    flex-grow: 1;
+    height: 15px;
+    background-color: #333;
+    border: 1px solid var(--color-text);
+}
+
+.trace-bar {
+    height: 100%;
+    transition: width 0.3s ease;
+}
+.trace-green { background-color: var(--color-green); }
+.trace-warning { background-color: var(--color-warning); }
+.trace-fail { background-color: var(--color-fail); }
+
+.action-button {
+    background: #00ffff1a;
+    color: var(--color-text);
+    border: 1px solid var(--color-cyan);
+    padding: 5px 10px;
+    cursor: pointer;
+}
