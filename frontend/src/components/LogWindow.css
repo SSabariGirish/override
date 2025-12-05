@@ -1,0 +1,24 @@
+.log-window {
+    flex: 1;
+    border: 1px solid var(--color-text);
+    padding: 10px;
+    background-color: #1a1a20;
+}
+
+.log-content {
+    height: 400px;
+    overflow-y: auto;
+    font-size: 0.85em;
+    padding-right: 5px;
+}
+
+.log-entry {
+    margin: 2px 0;
+    line-height: 1.2;
+}
+
+/* Color mappings from game engine logic */
+.log-green { color: var(--color-green); }
+.log-fail { color: var(--color-fail); }
+.log-warning { color: var(--color-warning); }
+.log-cyan { color: var(--color-cyan); }
