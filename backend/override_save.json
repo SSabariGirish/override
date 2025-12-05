@@ -1,26 +1,20 @@
 {
-  "credits": 5580,
+  "credits": 0,
   "base_compute": 50,
-  "trace": 65.49616485051874,
-  "turn": 24,
+  "trace": 0,
+  "turn": 4,
   "ddos_timer": 0,
   "ddos_effectiveness": 0.0,
   "history_log": [
-    "\u001b[33mPROXY SUCCESS: Trace masked.\u001b[0m",
-    "\u001b[92mSUCCESS: Infected 600 nodes in Valkyrine Ridge. (+0.2% Trace)\u001b[0m",
-    "\u001b[33m*** Valkyrine Ridge SOLIDIFIED! ***\u001b[0m",
-    "\u001b[93mLEAK: Solidified regions generated +4.0% Trace.\u001b[0m",
-    "\u001b[33mPROXY SUCCESS: Trace masked.\u001b[0m",
-    "\u001b[92mSUCCESS: Infected 1500 nodes in Tartarus Sector. (+0.3% Trace)\u001b[0m",
-    "\u001b[33m*** Tartarus Sector SOLIDIFIED! ***\u001b[0m",
-    "\u001b[93mLEAK: Solidified regions generated +5.0% Trace.\u001b[0m"
+    "Game RESTARTED.",
+    "\u001b[94mGame Saved to override_save.json.\u001b[0m"
   ],
   "regions": [
     {
       "name": "Elystrion",
       "total_nodes": 800,
       "defense": 5,
-      "infected_nodes": 800,
+      "infected_nodes": 0,
       "ransom_count": 0,
       "trait_name": "CORPORATE VAULT"
     },
@@ -28,7 +22,7 @@
       "name": "Sylthara Bloom",
       "total_nodes": 3000,
       "defense": 2,
-      "infected_nodes": 3000,
+      "infected_nodes": 0,
       "ransom_count": 0,
       "trait_name": "IOT SWARM"
     },
@@ -36,7 +30,7 @@
       "name": "Saxxten-36",
       "total_nodes": 500,
       "defense": 9,
-      "infected_nodes": 500,
+      "infected_nodes": 0,
       "ransom_count": 0,
       "trait_name": "HUNTER KILLER"
     },
@@ -44,7 +38,7 @@
       "name": "Valkyrine Ridge",
       "total_nodes": 600,
       "defense": 7,
-      "infected_nodes": 600,
+      "infected_nodes": 0,
       "ransom_count": 0,
       "trait_name": "ORBITAL STACK"
     },
@@ -52,7 +46,7 @@
       "name": "Tartarus Sector",
       "total_nodes": 1500,
       "defense": 3,
-      "infected_nodes": 1500,
+      "infected_nodes": 0,
       "ransom_count": 0,
       "trait_name": "DEEP WEB"
     },

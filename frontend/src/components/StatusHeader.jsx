@@ -51,6 +51,13 @@ const StatusHeader = ({ credits, compute, trace, ddosTimer, traceMultiplier, onA
                 >
                     [W] Wait/Idle
                 </button>
+                <button 
+                    onClick={() => onAction('restart')} 
+                    disabled={isLoading}
+                    className="action-button restart-button"
+                >
+                    [X] SYSTEM RESET
+                </button>
             </div>
         </div>
     );

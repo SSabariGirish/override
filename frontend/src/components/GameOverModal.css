@@ -1,0 +1,67 @@
+/* frontend/src/components/GameOverModal.css */
+
+.game-over-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.95);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+    backdrop-filter: blur(3px); /* Optional blur effect */
+}
+
+.game-over-modal-content {
+    background-color: var(--color-component-bg);
+    border: 3px solid var(--color-header);
+    padding: 40px;
+    text-align: center;
+    max-width: 600px;
+    box-shadow: 0 0 20px var(--color-header);
+    animation: neon-border 1.5s infinite alternate;
+}
+
+.game-over-modal-content h2 {
+    font-size: 2.5em;
+    margin-bottom: 20px;
+    text-shadow: 0 0 10px;
+}
+
+.success-text {
+    color: var(--color-gold);
+    text-shadow: 0 0 10px var(--color-gold);
+}
+
+.failure-text {
+    color: var(--color-fail);
+    text-shadow: 0 0 10px var(--color-fail);
+}
+
+.message-text {
+    font-size: 1.2em;
+    margin-bottom: 30px;
+}
+
+.restart-button {
+    font-size: 1.2em;
+    padding: 15px 30px;
+    background: var(--color-header);
+    color: var(--color-background);
+    border: 2px solid var(--color-text);
+    cursor: pointer;
+    transition: background 0.3s, color 0.3s;
+}
+
+.restart-button:hover {
+    background: var(--color-text);
+    color: var(--color-background);
+    box-shadow: 0 0 10px var(--color-text);
+}
+
+@keyframes neon-border {
+    from { border-color: var(--color-header); }
+    to { border-color: var(--color-cyan); }
+}
