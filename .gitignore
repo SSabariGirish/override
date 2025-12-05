@@ -28,3 +28,7 @@ venv/
 /frontend/dist/
 # Vite/bundler cache
 .vite/
+
+backend/.env
+backend/override_save.json
+override_save.json

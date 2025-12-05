@@ -4,14 +4,14 @@ import React, { useState, useEffect, useCallback } from 'react';
 import StatusHeader from './components/StatusHeader';
 import RegionList from './components/RegionList';
 import LogWindow from './components/LogWindow';
-import './App.css'; // Assume you'll create a simple CSS file
+import GameOverModal from './components/GameOverModal'; // NEW
+import './App.css'; 
 
 const API_BASE_URL = 'http://localhost:8000/api';
 
 function App() {
-    // Game state: will hold the structure returned by /api/status
+    // --- 1. HOOKS (MUST be at the top) ---
     const [gameState, setGameState] = useState(null);
-    // Events log: stores messages returned by /api/action
     const [events, setEvents] = useState([]); 
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -31,11 +31,17 @@ function App() {
             setEvents(data.history || []); 
         } catch (e) {
             console.error("Error fetching initial state:", e);
-            setError("Failed");
+            setError("Failed to connect to the game server. Check the backend console.");
         } finally {
             setLoading(false);
         }
     }, []);
+
+    // Load state on component mount (MUST be a top-level hook call)
+    useEffect(() => {
+        fetchState();
+    }, [fetchState]);
+
 
     // --- Core Action Submission Function ---
     const handleAction = async (action, payload = {}) => {
@@ -50,7 +56,6 @@ function App() {
             });
 
             if (!response.ok) {
-                // Read error message from backend
                 const errorData = await response.json();
                 throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
             }
@@ -60,15 +65,12 @@ function App() {
             // 1. Update the main game state
             setGameState(result.state);
             
-            // 2. Update the events log, keeping only the max allowed history length 
-            //    (the backend returns all events for the latest turn)
+            // 2. Update the events log. 
+            // Note: If action is 'restart', result.state.history will be small.
             const newEvents = result.events || [];
-            setEvents(prev => [...prev.slice(newEvents.length), ...newEvents]); // Simple log rotation
+            // We'll update the events list based on what the backend returned
+            setEvents(newEvents); 
             
-            if (result.state.terminal) {
-                alert(`Game Over! ${result.state.terminal.message}`);
-            }
-
         } catch (e) {
             console.error("Action failed:", e);
             setError(`Action Error: ${e.message}`);
@@ -77,30 +79,28 @@ function App() {
         }
     };
 
-    // Load state on component mount
-    useEffect(() => {
-        fetchState();
-    }, [fetchState]);
 
-
-    if (loading && !gameState) {
-        return <h1>Establishing Uplink...</h1>;
-    }
+    // --- 2. CONDITIONAL EARLY EXIT (Rendering Checks) ---
 
     if (error) {
-        return <h1 style={{ color: 'red' }}>Error: {error}</h1>;
+        // Render error state if connection fails
+        return <h1 style={{ color: 'red', textAlign: 'center', paddingTop: '50px' }}>Error: {error}</h1>;
     }
 
     if (!gameState) {
-        return <h1>Waiting for Game State...</h1>;
+        // Render loading state if gameState is null (initial fetch)
+        return <div className="loading-overlay">ESTABLISHING UPLINK...</div>;
     }
     
-    // Deconstruct necessary data for props
+    // --- 3. DESTRUCTURING (SAFE TO CALL HERE) ---
+    // This must come AFTER you confirm gameState is not null.
     const { regions, credits, compute, trace, ddos_timer, trace_multiplier } = gameState;
 
+    
+    // --- 4. MAIN RENDER ---
     return (
         <div className="override-app">
-            <h1>Override Protocol v2.0</h1>
+            <h1>Override Protocol v2.7</h1>
             
             <StatusHeader 
                 credits={credits} 
@@ -110,12 +110,15 @@ function App() {
                 traceMultiplier={trace_multiplier}
                 onAction={handleAction}
                 isLoading={loading}
+                // Lock UI interaction if game is over
+                isGameOver={!!gameState.terminal} 
             />
 
             <div className="main-layout">
                 <RegionList 
                     regions={regions} 
                     onAction={handleAction} 
+                    isGameOver={!!gameState.terminal}
                 />
                 
                 <LogWindow events={events} />
@@ -123,7 +126,16 @@ function App() {
             
             <p className="footer">Turn: {gameState.turn}</p>
 
+            {/* Render a processing overlay if loading */}
             {loading && <div className="loading-overlay">PROCESSING...</div>}
+            
+            {/* Game Over Modal Display */}
+            {gameState.terminal && (
+                <GameOverModal 
+                    terminal={gameState.terminal} 
+                    onRestart={() => handleAction('restart')} 
+                />
+            )}
         </div>
     );
 }
