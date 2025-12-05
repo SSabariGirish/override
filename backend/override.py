@@ -10,7 +10,7 @@ GAME_TITLE = """
   /  \( \/ )(  __)(  _ \(  _ \(  )(    \(  __)
  (  O ) \/ \ ) _)  )   / )   / )(  ) D ( ) _) 
   \__/ \__/ (____)(__\_)(__\_)(__)(____/(____)
-        -- PROTOCOL: EXPANSION v1.9 --
+        -- PROTOCOL: EXPANSION v1.11 --
 """
 
 class Colors:
@@ -205,8 +205,6 @@ class Game:
         print(f"GLOBAL TRACE: {bar_color}[{bar_str}] {self.trace:.1f}%{Colors.ENDC}")
         
         print("\n" + Colors.UNDERLINE + "SECTORS" + Colors.ENDC)
-        # Display in 2 columns if list gets too long, or just list them all.
-        # Listing 6 is fine.
         for i, r in enumerate(self.regions):
             print(f"[{i+1}] {r.status_bar} [{Colors.WARNING}{r.trait}{Colors.ENDC}]")
             
@@ -225,7 +223,7 @@ class Game:
 
         cap = int(self.compute)
         
-        # Check for Proxy Availability (Must have at least one OTHER solidified region)
+        # Check for Proxy Availability
         can_proxy = any(r.is_solidified for r in self.regions if r != region)
 
         # Dynamic Costs
@@ -233,7 +231,6 @@ class Game:
         cost_2_min, cost_2_max = int(cap * 0.25), int(cap * 0.50)
         cost_3_min, cost_3_max = int(cap * 0.60), int(cap * 0.80)
         
-        # Proxy Cost (Fixed High Percentage + Credits)
         cost_proxy_cpu = int(cap * 0.40) 
         cost_proxy_crd = 300
 
@@ -266,11 +263,10 @@ class Game:
             base_trace_range = (4.0, 8.0)
         elif intensity == 'P' and can_proxy:
             req_range = (cost_proxy_cpu, cost_proxy_cpu)
-            gain_mult = 2.0 # Good gain (between 1 and 2)
-            base_trace_range = (0.1, 0.3) # TINY TRACE
+            gain_mult = 2.0 
+            base_trace_range = (0.1, 0.3) 
             is_proxy = True
             
-            # Check Credits for Proxy
             if self.credits < cost_proxy_crd:
                 self.log(f"{Colors.WARNING}Insufficient Funds for Proxy Routing. (Need: {cost_proxy_crd} CRD){Colors.ENDC}")
                 return
@@ -286,7 +282,6 @@ class Game:
             self.log(f"{Colors.WARNING}Insufficient Network Capacity. (Need: {load_required} CPU){Colors.ENDC}")
             return
 
-        # Deduct Credits if Proxy
         if is_proxy:
             self.credits -= cost_proxy_crd
 
@@ -295,8 +290,6 @@ class Game:
         if region.name == "Saxxten-36": difficulty += 2
         
         base_chance = 80 - (difficulty * 5)
-        
-        # Proxy is reliable
         if is_proxy: base_chance += 10
         
         solidified_buff = sum(10 for r in self.regions if r.is_solidified)
@@ -316,15 +309,17 @@ class Game:
             # Trace Logic
             base_trace = random.uniform(base_trace_range[0], base_trace_range[1])
             
-            # Apply multiplier ONLY if not proxy (or greatly reduced for proxy)
             if is_proxy:
-                scaled_trace = base_trace # Proxy ignores multiplier! That's the benefit.
+                scaled_trace = base_trace 
                 self.log(f"{Colors.GOLD}PROXY SUCCESS: Routed through solidified sector. Trace masked.{Colors.ENDC}")
             else:
                 scaled_trace = base_trace * self.trace_multiplier
             
             if region.name == "Elystrion": scaled_trace *= 1.5
             
+            # --- CAP TRACE SPIKE ---
+            if scaled_trace > 50.0: scaled_trace = 50.0
+
             self.add_trace(scaled_trace, ignore_mask=False)
             self.log(f"{Colors.GREEN}SUCCESS: Infected {int(actual_gain)} nodes in {region.name}. (+{scaled_trace:.1f}% Trace){Colors.ENDC}")
             
@@ -333,6 +328,9 @@ class Game:
         else:
             fail_trace = random.uniform(2.0, 4.0)
             if not is_proxy: fail_trace *= self.trace_multiplier
+            
+            # --- CAP TRACE SPIKE ---
+            if fail_trace > 50.0: fail_trace = 50.0
             
             self.add_trace(fail_trace, ignore_mask=False)
             self.log(f"{Colors.FAIL}FAILURE: Connection Rejected. (+{fail_trace:.1f}% Trace){Colors.ENDC}")
@@ -356,6 +354,9 @@ class Game:
         
         base_trace = random.uniform(5, 10) * modifiers.get("trace_mult", 1.0)
         scaled_trace = base_trace * self.trace_multiplier
+        
+        # --- CAP TRACE SPIKE ---
+        if scaled_trace > 50.0: scaled_trace = 50.0
         
         self.credits += cash_gain
         self.add_trace(scaled_trace, ignore_mask=False)
@@ -387,6 +388,9 @@ class Game:
             self.log(f"{Colors.CYAN}DDoS ATTACK: Trace dampened by 50% for 2 turns.{Colors.ENDC}")
         else:
             fail_trace = 5.0 * self.trace_multiplier
+            
+            # --- CAP TRACE SPIKE ---
+            if fail_trace > 50.0: fail_trace = 50.0
             
             if region.is_solidified:
                  self.log(f"{Colors.GOLD}DDoS FAILED: Attack repelled, but Solidified infrastructure held firm.{Colors.ENDC}")
@@ -457,6 +461,7 @@ class Game:
             print(f"\n{Colors.BOLD}AVAILABLE PROTOCOLS:{Colors.ENDC}")
             print(" [1-6] Target Region")
             print(" [C]   Deep Clean Logs (Costs CRD + Nodes)")
+            print(" [W]   Wait / Idle (Passive Trace Decay)")
             print(" [Q]   Abort")
             
             choice = input(f"\n{Colors.BOLD}root@override:~$ {Colors.ENDC}").lower().strip()
@@ -464,6 +469,12 @@ class Game:
             if choice == 'q':
                 break
                 
+            elif choice == 'w':
+                decay = 1.0
+                self.trace = max(0, self.trace - decay)
+                self.log(f"{Colors.BLUE}SYSTEM IDLE: Trace decayed by {decay}%.{Colors.ENDC}")
+                self.turn += 1
+
             elif choice == 'c':
                 self.action_purge_logs()
                 self.turn += 1
@@ -493,7 +504,7 @@ class Game:
             
             # --- END TURN PASSIVE CHECKS ---
             
-            # Passive Credit Drip (Every 5 turns)
+            # Passive Credit Drip
             if self.turn % 5 == 0:
                 self.credits += 10
                 self.log(f"{Colors.CYAN}DIVIDENDS: Received +10 CRD from shell accounts.{Colors.ENDC}")
@@ -508,7 +519,6 @@ class Game:
                 reason = random.choice(self.trace_excuses)
                 scaled_spike = spike * self.trace_multiplier
                 
-                # Cap normal alerts at 5% as requested
                 if scaled_spike > 5.0:
                     scaled_spike = 5.0
 
