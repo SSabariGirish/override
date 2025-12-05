@@ -3,14 +3,20 @@ import os
 import time
 import sys
 import math
+import json
+from dataclasses import dataclass, field, asdict
+from typing import List, Dict, Any, Optional, Tuple
 
 # --- CONFIGURATION ---
+GAME_VERSION = "v2.7 (Proxy Balance Update)"
+SAVE_FILE = "override_save.json"
+
 GAME_TITLE = """
    __  _  _  ____  ____  ____  __  ____  ____ 
   /  \( \/ )(  __)(  _ \(  _ \(  )(    \(  __)
  (  O ) \/ \ ) _)  )   / )   / )(  ) D ( ) _) 
   \__/ \__/ (____)(__\_)(__\_)(__)(____/(____)
-        -- PROTOCOL: EXPANSION v1.11 --
+        -- PROTOCOL: EXPANSION v2.7 --
 """
 
 class Colors:
@@ -35,15 +41,60 @@ def type_writer(text, speed=0.01):
 def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
 
-# --- REGION LOGIC ---
+def clamp(v, lo, hi):
+    return max(lo, min(hi, v))
 
+# ----------------------------
+# TRAIT SYSTEM
+# ----------------------------
+
+class Trait:
+    name = "GENERIC"
+    def on_infect_gain_multiplier(self) -> float: return 1.0
+    def on_infect_trace_modifier(self, trace: float) -> float: return trace
+    def on_ransom_multiplier(self) -> float: return 1.0
+    def on_ransom_trace_modifier(self, trace: float) -> float: return trace
+    def on_difficulty_modifier(self) -> int: return 0
+    def on_risk_multiplier(self) -> float: return 1.0
+
+class ElystrionTrait(Trait):
+    name = "CORPORATE VAULT"
+    def on_ransom_multiplier(self): return 2.5
+    def on_ransom_trace_modifier(self, trace): return trace * 2.0
+    def on_infect_trace_modifier(self, trace): return trace * 1.5
+
+class SyltharaTrait(Trait):
+    name = "IOT SWARM"
+    def on_infect_gain_multiplier(self): return 2.0 # Base gain * 2
+
+class SaxxtenTrait(Trait):
+    name = "HUNTER KILLER"
+    def on_difficulty_modifier(self): return 2
+    def on_risk_multiplier(self): return 2.0
+
+class ValkyrineTrait(Trait):
+    name = "ORBITAL STACK"
+    def on_infect_trace_modifier(self, trace): return trace * 0.8
+
+class TartarusTrait(Trait):
+    name = "DEEP WEB"
+    def on_risk_multiplier(self): return 1.5
+
+class CodaTrait(Trait):
+    name = "QUANTUM CORE"
+
+# ----------------------------
+# DATA STRUCTURES
+# ----------------------------
+
+@dataclass
 class Region:
-    def __init__(self, name, total_nodes, defense):
-        self.name = name
-        self.total_nodes = total_nodes
-        self.infected_nodes = 0
-        self.defense = defense  # 1-10 difficulty
-        self.alert_level = 0    # Local alertness
+    name: str
+    total_nodes: int
+    defense: int
+    infected_nodes: int = 0
+    ransom_count: int = 0  # Track number of ransomware attacks
+    trait: Trait = field(default_factory=Trait)
 
     @property
     def is_solidified(self):
@@ -58,91 +109,40 @@ class Region:
         else:
             color = Colors.GREEN if percent > 0 else Colors.FAIL
             status = f"{self.infected_nodes}/{self.total_nodes}"
-        
-        return f"{self.name.ljust(20)} | {color}{status.rjust(9)}{Colors.ENDC} | Def: {self.defense}"
+        return f"{self.name.ljust(20)} | {color}{status.rjust(9)}{Colors.ENDC} | Def: {self.defense} | {self.trait.name}"
 
-class Elystrion(Region):
-    def __init__(self):
-        super().__init__("Elystrion", 800, 5)
-        self.trait = "CORPORATE VAULT"
-        
-    def calculate_yield(self, operation):
-        if operation == "ransomware":
-            return {"cash_mult": 2.5, "trace_mult": 2.0} 
-        return {"cash_mult": 1.0, "trace_mult": 1.2}
+@dataclass
+class ActionResult:
+    success: bool
+    events: List[str] = field(default_factory=list)
 
-class Sylthara(Region):
-    def __init__(self):
-        super().__init__("Sylthara Bloom", 3000, 2)
-        self.trait = "IOT SWARM"
+# ----------------------------
+# GAME ENGINE
+# ----------------------------
 
-    def calculate_yield(self, operation):
-        if operation == "ddos":
-            return {"cpu_mult": 1.5, "risk_mult": 0.5}
-        return {"cpu_mult": 1.0, "risk_mult": 1.0}
-
-class Saxxten(Region):
-    def __init__(self):
-        super().__init__("Saxxten-36", 500, 9)
-        self.trait = "HUNTER KILLER"
-
-    def calculate_yield(self, operation):
-        if operation == "spread":
-            return {"defense_buff": 2} 
-        return {"risk_mult": 2.0}
-
-# --- NEW CONTINENTS ---
-
-class Valkyrine(Region):
-    def __init__(self):
-        super().__init__("Valkyrine Ridge", 600, 7)
-        self.trait = "ORBITAL STACK"
-
-    def calculate_yield(self, operation):
-        # High defense, but prestigious. Hard to access.
-        return {"trace_mult": 0.8} # Slightly harder to trace due to space lag
-
-class Tartarus(Region):
-    def __init__(self):
-        super().__init__("Tartarus Sector", 1500, 3)
-        self.trait = "DEEP WEB"
-
-    def calculate_yield(self, operation):
-        # Massive volume, low security, but messy.
-        if operation == "spread":
-            return {"risk_mult": 1.5} # Prone to instability
-        return {}
-
-class Coda(Region):
-    def __init__(self):
-        super().__init__("Coda Labyrinth", 700, 6)
-        self.trait = "QUANTUM CORE"
-
-    def calculate_yield(self, operation):
-        # Unstable.
-        return {}
-
-# --- GAME ENGINE ---
-
-class Game:
+class GameEngine:
     def __init__(self):
         self.regions = [
-            Elystrion(), 
-            Sylthara(), 
-            Saxxten(),
-            Valkyrine(),
-            Tartarus(),
-            Coda()
+            Region("Elystrion", 800, 5, trait=ElystrionTrait()),
+            Region("Sylthara Bloom", 3000, 2, trait=SyltharaTrait()),
+            Region("Saxxten-36", 500, 9, trait=SaxxtenTrait()),
+            Region("Valkyrine Ridge", 600, 7, trait=ValkyrineTrait()),
+            Region("Tartarus Sector", 1500, 3, trait=TartarusTrait()),
+            Region("Coda Labyrinth", 700, 6, trait=CodaTrait())
         ]
+        
+        # State variables (v1.11 Defaults)
         self.credits = 100
-        self.base_compute = 50 
+        self.base_compute = 50
         self.trace = 0.0
         self.turn = 1
         self.game_over = False
-        self.history_log = []
-        
         self.ddos_timer = 0
+        self.ddos_effectiveness = 0.0
         
+        self.history_log = []
+        self._max_history = 8
+
         self.trace_excuses = [
             "Junior Sysadmin noticed a bandwidth spike.",
             "Rogue packet collided with a honeypot.",
@@ -153,6 +153,7 @@ class Game:
             "Port scan triggered a silent alarm."
         ]
 
+    # --- Properties ---
     @property
     def compute(self):
         total_infected = sum(r.infected_nodes for r in self.regions)
@@ -161,25 +162,436 @@ class Game:
     @property
     def trace_multiplier(self):
         total_infected = sum(r.infected_nodes for r in self.regions)
-        # Formula: 1.0 + (Nodes / 200). 
-        return 1.0 + (total_infected / 200.0)
+        # Cap at 10.0x so late game is playable but hard
+        raw_mult = 1.0 + (total_infected / 200.0)
+        return min(raw_mult, 10.0)
 
+    # --- Core Logic Helpers ---
     def log(self, msg):
         self.history_log.append(msg)
-        if len(self.history_log) > 6:
+        if len(self.history_log) > self._max_history:
             self.history_log.pop(0)
 
-    def add_trace(self, amount, ignore_mask=False):
+    def add_trace(self, amount, ignore_mask=False) -> float:
+        """Adds trace and returns the actual amount added (after caps/masks)."""
+        
+        # DDoS Masking Logic: Multiply by (1 - effectiveness)
+        # e.g., if effectiveness is 0.75 (75%), we multiply by 0.25
         if self.ddos_timer > 0 and not ignore_mask:
-            amount *= 0.5 
+            amount *= (1.0 - self.ddos_effectiveness)
+        
+        # Safety Valve: Cap single spike at 50%
+        if amount > 50.0: 
+            amount = 50.0
+            
         self.trace += amount
+        
+        # Hard Cap: 100%
         if self.trace > 100:
             self.trace = 100.0
+            
+        return amount
 
+    def get_infect_costs(self):
+        cap = int(self.compute)
+        return {
+            "1": (int(cap * 0.05), int(cap * 0.20)),
+            "2": (int(cap * 0.25), int(cap * 0.50)),
+            "3": (int(cap * 0.60), int(cap * 0.80)),
+            "P": int(cap * 0.40)
+        }
+
+    # --- Persistence ---
+    def save_game(self):
+        data = {
+            "credits": self.credits,
+            "base_compute": self.base_compute,
+            "trace": self.trace,
+            "turn": self.turn,
+            "ddos_timer": self.ddos_timer,
+            "ddos_effectiveness": self.ddos_effectiveness,
+            "history_log": self.history_log,
+            "regions": []
+        }
+        for r in self.regions:
+            # We serialize traits by name to reconstruct them later
+            r_data = asdict(r)
+            r_data['trait_name'] = r.trait.name
+            del r_data['trait']
+            data["regions"].append(r_data)
+        
+        try:
+            with open(SAVE_FILE, 'w') as f:
+                json.dump(data, f, indent=2)
+            self.log(f"{Colors.BLUE}Game Saved to {SAVE_FILE}.{Colors.ENDC}")
+            return True
+        except Exception as e:
+            self.log(f"{Colors.FAIL}Save Failed: {e}{Colors.ENDC}")
+            return False
+
+    def load_game(self):
+        if not os.path.exists(SAVE_FILE):
+            self.log(f"{Colors.FAIL}No save file found.{Colors.ENDC}")
+            return False
+
+        try:
+            with open(SAVE_FILE, 'r') as f:
+                data = json.load(f)
+            
+            self.credits = data.get("credits", 100)
+            self.base_compute = data.get("base_compute", 50)
+            self.trace = data.get("trace", 0.0)
+            self.turn = data.get("turn", 1)
+            self.ddos_timer = data.get("ddos_timer", 0)
+            self.ddos_effectiveness = data.get("ddos_effectiveness", 0.0)
+            self.history_log = data.get("history_log", [])
+            
+            # Map trait names back to instances
+            trait_map = {
+                "CORPORATE VAULT": ElystrionTrait(),
+                "IOT SWARM": SyltharaTrait(),
+                "HUNTER KILLER": SaxxtenTrait(),
+                "ORBITAL STACK": ValkyrineTrait(),
+                "DEEP WEB": TartarusTrait(),
+                "QUANTUM CORE": CodaTrait(),
+                "GENERIC": Trait()
+            }
+            
+            new_regions = []
+            for r_data in data.get("regions", []):
+                t_name = r_data.pop("trait_name", "GENERIC")
+                t_inst = trait_map.get(t_name, Trait())
+                
+                # Rebuild Region object
+                if 'trait' in r_data: del r_data['trait'] # safety
+                reg = Region(trait=t_inst, **r_data)
+                new_regions.append(reg)
+            
+            self.regions = new_regions
+            self.log(f"{Colors.BLUE}Game Loaded from {SAVE_FILE}.{Colors.ENDC}")
+            return True
+        except Exception as e:
+            self.log(f"{Colors.FAIL}Load Failed: {e}{Colors.ENDC}")
+            return False
+
+    # --- Actions ---
+
+    def action_infect(self, region_idx, intensity):
+        region = self.regions[region_idx]
+        ar = ActionResult(success=False)
+
+        if region.is_solidified:
+            ar.events.append(f"{Colors.GOLD}Region already Solidified. Control absolute.{Colors.ENDC}")
+            return ar
+
+        can_proxy = any(r.is_solidified for r in self.regions if r != region)
+        costs = self.get_infect_costs()
+        
+        req_range = (0,0)
+        gain_mult = 1.0
+        base_trace_range = (0.0, 0.0)
+        is_proxy = False
+        cost_proxy_crd = 2000  # Updated Cost
+
+        if intensity == '1':
+            req_range = costs["1"]
+            gain_mult = 1.0
+            base_trace_range = (0.5, 1.5)
+        elif intensity == '2':
+            req_range = costs["2"]
+            gain_mult = 2.5
+            base_trace_range = (1.5, 3.0)
+        elif intensity == '3':
+            req_range = costs["3"]
+            gain_mult = 6.0 
+            base_trace_range = (4.0, 8.0)
+        elif intensity == 'P':
+            if not can_proxy:
+                ar.events.append("No Solidified region available for Proxy routing.")
+                return ar
+            if self.credits < cost_proxy_crd:
+                ar.events.append(f"{Colors.WARNING}Insufficient Funds for Proxy (Need: {cost_proxy_crd} CRD).{Colors.ENDC}")
+                return ar
+            
+            req_range = (costs["P"], costs["P"])
+            gain_mult = 2.0 
+            base_trace_range = (0.1, 0.3) 
+            is_proxy = True
+        else:
+            ar.events.append("Invalid intensity.")
+            return ar
+
+        # Calculate Load
+        load_required = random.randint(req_range[0], req_range[1])
+        load_required = max(1, load_required)
+
+        if self.compute < load_required:
+            ar.events.append(f"{Colors.WARNING}Insufficient Capacity (Need: {load_required} CPU).{Colors.ENDC}")
+            return ar
+
+        # Pay Credits if Proxy
+        if is_proxy:
+            self.credits -= cost_proxy_crd
+
+        # Calculate Chance
+        difficulty = region.defense + region.trait.on_difficulty_modifier()
+        base_chance = 80 - (difficulty * 5)
+        if is_proxy: base_chance += 10
+        solidified_buff = sum(10 for r in self.regions if r.is_solidified)
+        chance = base_chance + solidified_buff
+
+        if random.randint(0, 100) <= chance:
+            # Success Logic
+            base_gain = int(load_required * 0.8 * gain_mult)
+            base_gain = max(5, base_gain)
+            base_gain = int(base_gain * region.trait.on_infect_gain_multiplier())
+            
+            actual_gain = min(base_gain, region.total_nodes - region.infected_nodes)
+            region.infected_nodes += int(actual_gain)
+            
+            # Trace Logic
+            base_trace = random.uniform(base_trace_range[0], base_trace_range[1])
+            
+            if is_proxy:
+                scaled_trace = base_trace
+                ar.events.append(f"{Colors.GOLD}PROXY SUCCESS: Trace masked.{Colors.ENDC}")
+            else:
+                scaled_trace = base_trace * self.trace_multiplier
+                scaled_trace = region.trait.on_infect_trace_modifier(scaled_trace)
+
+            applied_trace = self.add_trace(scaled_trace)
+            ar.events.append(f"{Colors.GREEN}SUCCESS: Infected {int(actual_gain)} nodes in {region.name}. (+{applied_trace:.1f}% Trace){Colors.ENDC}")
+            ar.success = True
+
+            if region.is_solidified:
+                ar.events.append(f"{Colors.GOLD}*** {region.name} SOLIDIFIED! ***{Colors.ENDC}")
+        else:
+            # Failure Logic
+            fail_trace = random.uniform(2.0, 4.0)
+            if not is_proxy: 
+                fail_trace *= self.trace_multiplier
+            
+            applied_trace = self.add_trace(fail_trace)
+            ar.events.append(f"{Colors.FAIL}FAILURE: Connection Rejected. (+{applied_trace:.1f}% Trace){Colors.ENDC}")
+
+        return ar
+
+    def action_ransomware(self, region_idx, intensity):
+        region = self.regions[region_idx]
+        ar = ActionResult(success=False)
+
+        if region.infected_nodes < 10:
+            ar.events.append(f"{Colors.WARNING}Not enough infected nodes.{Colors.ENDC}")
+            return ar
+
+        if intensity == '1': # Low
+            required_load = 10
+            yield_mult = 0.2
+            trace_base_range = (1.0, 3.0)
+            tier_name = "DATA SIPHON"
+        elif intensity == '2': # Med
+            required_load = 40
+            yield_mult = 0.6
+            trace_base_range = (4.0, 8.0)
+            tier_name = "ENCRYPTION"
+        elif intensity == '3': # High
+            required_load = 80
+            yield_mult = 1.5
+            trace_base_range = (10.0, 20.0)
+            tier_name = "INFRASTRUCTURE LOCK"
+        else:
+            ar.events.append("Invalid Intensity")
+            return ar
+
+        if self.compute < required_load:
+            ar.events.append(f"{Colors.WARNING}Insufficient Capacity (Need: {required_load}).{Colors.ENDC}")
+            return ar
+
+        base_yield = region.infected_nodes * yield_mult
+        
+        # Diminishing Returns for Dominated Regions
+        diminish_factor = 1.0
+        if region.is_solidified:
+            # Drop 10% per attempt, capped at 10% min
+            diminish_factor = max(0.1, 1.0 - (region.ransom_count * 0.1))
+            region.ransom_count += 1
+            
+        final_yield_mult = region.trait.on_ransom_multiplier() * diminish_factor
+        cash_gain = int(base_yield * final_yield_mult)
+        
+        base_trace = random.uniform(trace_base_range[0], trace_base_range[1])
+        scaled_trace = base_trace * self.trace_multiplier
+        scaled_trace = region.trait.on_ransom_trace_modifier(scaled_trace)
+        
+        self.credits += cash_gain
+        applied_trace = self.add_trace(scaled_trace)
+        
+        msg_extra = ""
+        if self.ddos_timer > 0: 
+            msg_extra += f"(Masked {int(self.ddos_effectiveness * 100)}%) "
+        
+        if region.is_solidified and diminish_factor < 1.0:
+            pct_yield = int(diminish_factor * 100)
+            msg_extra += f"{Colors.WARNING}(Yield Dampened: {pct_yield}%){Colors.ENDC}"
+        
+        ar.events.append(f"{Colors.GREEN}{tier_name}: Extracted {cash_gain} Credits. (+{applied_trace:.1f}% Trace) {msg_extra}{Colors.ENDC}")
+        ar.success = True
+        return ar
+
+    def action_ddos(self, region_idx, intensity):
+        region = self.regions[region_idx]
+        ar = ActionResult(success=False)
+
+        if intensity == '1': # Simple
+            cost_cred = 5
+            req_nodes = 20
+            mask = 0.25
+            name = "SIMPLE DoS"
+        elif intensity == '2': # Average
+            cost_cred = 20
+            req_nodes = 100
+            mask = 0.50
+            name = "DISTRIBUTED DoS"
+        elif intensity == '3': # Botnet
+            cost_cred = 50
+            req_nodes = 300
+            mask = 0.75
+            name = "BOTNET SWARM"
+        elif intensity == '4': # Global
+            cost_cred = 150
+            req_nodes = 500
+            mask = 0.95
+            name = "CROSS-CONTINENT BLACKOUT"
+        else:
+            ar.events.append("Invalid Intensity")
+            return ar
+
+        if region.infected_nodes < req_nodes:
+            ar.events.append(f"{Colors.WARNING}Need {req_nodes} nodes in region.{Colors.ENDC}")
+            return ar
+
+        if self.credits < cost_cred:
+            ar.events.append(f"{Colors.WARNING}Insufficient Credits (Need: {cost_cred}).{Colors.ENDC}")
+            return ar
+
+        self.credits -= cost_cred
+        
+        if random.randint(0, 100) < 85:
+            self.ddos_timer = 3  # Start at 3 so it lasts 2 full turns after this one
+            self.ddos_effectiveness = mask
+            ar.events.append(f"{Colors.CYAN}{name}: Trace dampened by {int(mask*100)}% for 2 turns.{Colors.ENDC}")
+            ar.success = True
+        else:
+            # Failure case - Credits lost, no trace spike
+            if region.is_solidified:
+                ar.events.append(f"{Colors.GOLD}DDoS FAILED: Credits lost, but solidified infrastructure prevented fallout.{Colors.ENDC}")
+            else:
+                lost_nodes = int(region.infected_nodes * 0.1)
+                region.infected_nodes -= lost_nodes
+                # Trace spike removed per user request
+                ar.events.append(f"{Colors.FAIL}{name} FAILED: Lost {lost_nodes} nodes. (Credits consumed, No Trace Spike){Colors.ENDC}")
+        
+        return ar
+
+    def action_purge_logs(self):
+        ar = ActionResult(success=False)
+        base_cost = 50
+        trace_tax = int(self.trace * 2)
+        total_cost = base_cost + trace_tax
+
+        if self.credits < total_cost:
+            ar.events.append(f"{Colors.WARNING}Cannot afford Deep Clean. Cost: {total_cost} CRD.{Colors.ENDC}")
+            return ar
+
+        vulnerable = [r for r in self.regions if r.infected_nodes > 0 and not r.is_solidified]
+        sacrifice = 0
+        if not vulnerable:
+            ar.events.append(f"{Colors.GOLD}All active nodes Solidified. Skipping sacrifice.{Colors.ENDC}")
+        else:
+            total_infected = sum(r.infected_nodes for r in self.regions)
+            sacrifice = int(total_infected * 0.15)
+
+        self.credits -= total_cost
+
+        if sacrifice > 0:
+            remaining = sacrifice
+            random.shuffle(vulnerable)
+            for r in vulnerable:
+                if remaining <= 0: break
+                take = min(r.infected_nodes, remaining)
+                r.infected_nodes -= take
+                remaining -= take
+            
+            actual_lost = sacrifice - remaining
+            ar.events.append(f"{Colors.FAIL}SACRIFICE: Destroyed {actual_lost} nodes.{Colors.ENDC}")
+
+        reduction = random.randint(25, 40)
+        self.trace = max(0, self.trace - reduction)
+        ar.events.append(f"{Colors.BLUE}LOGS PURGED: Trace reduced by {reduction}%.{Colors.ENDC}")
+        ar.success = True
+        return ar
+
+    def action_wait(self):
+        decay = 1.0
+        self.trace = max(0, self.trace - decay)
+        return ActionResult(success=True, events=[f"{Colors.BLUE}SYSTEM IDLE: Trace decayed by {decay}%.{Colors.ENDC}"])
+
+    # --- Turn Loop & Passives ---
+    def step(self):
+        self.turn += 1
+        
+        # 1. Passive Credit Drip
+        if self.turn % 5 == 0:
+            self.credits += 10
+            self.log(f"{Colors.CYAN}DIVIDENDS: +10 CRD from shell accounts.{Colors.ENDC}")
+
+        # 2. Black Swan (Secret Agent)
+        if random.random() < 0.001:
+            self.trace = 100.0
+            descriptions = [
+                "A shadow operative breached the physical server farm.",
+                "Insider threat confirmed: Your lead engineer was a mole.",
+                "Quantum decryption broke your master encryption key.",
+                "Satellite triangulation pinpointed your uplink.",
+                "A physical raid team has seized the control center."
+            ]
+            desc = random.choice(descriptions)
+            self.log(f"{Colors.FAIL}{Colors.BOLD}BLACK SWAN EVENT: {desc} (+100.0% Trace){Colors.ENDC}")
+        
+        # 3. Standard Alerts
+        elif random.random() < 0.15:
+            spike = random.randint(2, 5)
+            reason = random.choice(self.trace_excuses)
+            scaled_spike = spike * self.trace_multiplier
+            if scaled_spike > 5.0: scaled_spike = 5.0 # Cap
+            applied = self.add_trace(scaled_spike, ignore_mask=True)
+            self.log(f"{Colors.WARNING}ALERT: {reason} (+{applied:.1f}% Trace){Colors.ENDC}")
+
+        # 4. Refugee Leak
+        solidified_leak = sum(1 for r in self.regions if r.is_solidified)
+        if solidified_leak > 0:
+            applied = self.add_trace(solidified_leak, ignore_mask=True)
+            self.log(f"{Colors.WARNING}LEAK: Solidified regions generated +{applied:.1f}% Trace.{Colors.ENDC}")
+
+        # 5. DDoS Timer
+        if self.ddos_timer > 0:
+            self.ddos_timer -= 1
+            if self.ddos_timer == 0:
+                self.ddos_effectiveness = 0.0
+                self.log(f"{Colors.WARNING}DDoS Masking Expired.{Colors.ENDC}")
+
+        # 6. Hunter Killer (Saxxten)
+        saxxten = self.regions[2]
+        if saxxten.infected_nodes > 50 and not saxxten.is_solidified:
+            if random.random() < 0.3:
+                kill = int(saxxten.infected_nodes * 0.1)
+                saxxten.infected_nodes -= kill
+                self.log(f"{Colors.FAIL}HUNTER: Saxxten AI purged {kill} nodes.{Colors.ENDC}")
+
+    # --- UI & Input ---
     def display_ui(self):
         clear_screen()
         print(Colors.HEADER + f"--- OPERATION CYCLE: {self.turn} ---" + Colors.ENDC)
-        
         print(f"CAPACITY: {Colors.CYAN}{int(self.compute)} CPU{Colors.ENDC} | FUNDS: {Colors.GREEN}{self.credits} CRD{Colors.ENDC}")
         
         mult = self.trace_multiplier
@@ -189,7 +601,8 @@ class Game:
         print(f"NETWORK SIGNATURE: {color}{mult:.1f}x Multiplier{Colors.ENDC}")
 
         if self.ddos_timer > 0:
-            print(f"STATUS: {Colors.CYAN}TRAFFIC MASKED (DDoS Active: {self.ddos_timer} turns){Colors.ENDC}")
+            pct = int(self.ddos_effectiveness * 100)
+            print(f"STATUS: {Colors.CYAN}TRAFFIC MASKED ({pct}% Damper | {self.ddos_timer} turns){Colors.ENDC}")
         
         solidified_count = sum(1 for r in self.regions if r.is_solidified)
         if solidified_count > 0:
@@ -200,13 +613,12 @@ class Game:
         bar_color = Colors.GREEN
         if self.trace > 40: bar_color = Colors.WARNING
         if self.trace > 80: bar_color = Colors.FAIL
-        
         bar_str = "#" * filled + "-" * (bar_len - filled)
         print(f"GLOBAL TRACE: {bar_color}[{bar_str}] {self.trace:.1f}%{Colors.ENDC}")
         
         print("\n" + Colors.UNDERLINE + "SECTORS" + Colors.ENDC)
         for i, r in enumerate(self.regions):
-            print(f"[{i+1}] {r.status_bar} [{Colors.WARNING}{r.trait}{Colors.ENDC}]")
+            print(f"[{i+1}] {r.status_bar}")
             
         print("-" * 50)
         print(f"{Colors.BOLD}LATEST LOGS:{Colors.ENDC}")
@@ -214,237 +626,14 @@ class Game:
             print(f" > {msg}")
         print("-" * 50)
 
-    def action_infect(self, region_idx):
-        region = self.regions[region_idx]
-        
-        if region.is_solidified:
-            self.log(f"{Colors.GOLD}Region already Solidified. Control absolute.{Colors.ENDC}")
-            return
-
-        cap = int(self.compute)
-        
-        # Check for Proxy Availability
-        can_proxy = any(r.is_solidified for r in self.regions if r != region)
-
-        # Dynamic Costs
-        cost_1_min, cost_1_max = int(cap * 0.05), int(cap * 0.20)
-        cost_2_min, cost_2_max = int(cap * 0.25), int(cap * 0.50)
-        cost_3_min, cost_3_max = int(cap * 0.60), int(cap * 0.80)
-        
-        cost_proxy_cpu = int(cap * 0.40) 
-        cost_proxy_crd = 300
-
-        print(f"\n{Colors.UNDERLINE}SELECT INTENSITY FOR {region.name}:{Colors.ENDC}")
-        print(f" [1] SIGNAL INJECTION (Load: {cost_1_min}-{cost_1_max} CPU | 5-20%)")
-        print(f" [2] PACKET FLOOD     (Load: {cost_2_min}-{cost_2_max} CPU | 25-50%)")
-        print(f" [3] LOGIC BOMB       (Load: {cost_3_min}-{cost_3_max} CPU | 60-80%)")
-        
-        if can_proxy:
-            print(f" {Colors.GOLD}[P] PROXY ATTACK     (Load: {cost_proxy_cpu} CPU + {cost_proxy_crd} CRD | STEALTH MODE){Colors.ENDC}")
-        
-        intensity = input(f"{Colors.BOLD}Select Intensity > {Colors.ENDC}").strip().upper()
-        
-        req_range = (0,0)
-        gain_mult = 1.0
-        base_trace_range = (0.0, 0.0)
-        is_proxy = False
-
-        if intensity == '1':
-            req_range = (cost_1_min, cost_1_max)
-            gain_mult = 1.0
-            base_trace_range = (0.5, 1.5)
-        elif intensity == '2':
-            req_range = (cost_2_min, cost_2_max)
-            gain_mult = 2.5
-            base_trace_range = (1.5, 3.0)
-        elif intensity == '3':
-            req_range = (cost_3_min, cost_3_max)
-            gain_mult = 6.0 
-            base_trace_range = (4.0, 8.0)
-        elif intensity == 'P' and can_proxy:
-            req_range = (cost_proxy_cpu, cost_proxy_cpu)
-            gain_mult = 2.0 
-            base_trace_range = (0.1, 0.3) 
-            is_proxy = True
-            
-            if self.credits < cost_proxy_crd:
-                self.log(f"{Colors.WARNING}Insufficient Funds for Proxy Routing. (Need: {cost_proxy_crd} CRD){Colors.ENDC}")
-                return
-        else:
-            self.log("Invalid intensity selection.")
-            return
-
-        # Load Check
-        load_required = random.randint(req_range[0], req_range[1])
-        load_required = max(1, load_required)
-        
-        if self.compute < load_required:
-            self.log(f"{Colors.WARNING}Insufficient Network Capacity. (Need: {load_required} CPU){Colors.ENDC}")
-            return
-
-        if is_proxy:
-            self.credits -= cost_proxy_crd
-
-        # Chance Check
-        difficulty = region.defense
-        if region.name == "Saxxten-36": difficulty += 2
-        
-        base_chance = 80 - (difficulty * 5)
-        if is_proxy: base_chance += 10
-        
-        solidified_buff = sum(10 for r in self.regions if r.is_solidified)
-        chance = base_chance + solidified_buff
-        
-        roll = random.randint(0, 100)
-        
-        if roll <= chance:
-            base_gain = int(load_required * 0.8 * gain_mult)
-            base_gain = max(5, base_gain)
-            
-            if region.name == "Sylthara Bloom": base_gain *= 2
-            
-            actual_gain = min(base_gain, region.total_nodes - region.infected_nodes)
-            region.infected_nodes += int(actual_gain)
-            
-            # Trace Logic
-            base_trace = random.uniform(base_trace_range[0], base_trace_range[1])
-            
-            if is_proxy:
-                scaled_trace = base_trace 
-                self.log(f"{Colors.GOLD}PROXY SUCCESS: Routed through solidified sector. Trace masked.{Colors.ENDC}")
-            else:
-                scaled_trace = base_trace * self.trace_multiplier
-            
-            if region.name == "Elystrion": scaled_trace *= 1.5
-            
-            # --- CAP TRACE SPIKE ---
-            if scaled_trace > 50.0: scaled_trace = 50.0
-
-            self.add_trace(scaled_trace, ignore_mask=False)
-            self.log(f"{Colors.GREEN}SUCCESS: Infected {int(actual_gain)} nodes in {region.name}. (+{scaled_trace:.1f}% Trace){Colors.ENDC}")
-            
-            if region.is_solidified:
-                self.log(f"{Colors.GOLD}*** {region.name} SOLIDIFIED! NODES IMMUNE. ***{Colors.ENDC}")
-        else:
-            fail_trace = random.uniform(2.0, 4.0)
-            if not is_proxy: fail_trace *= self.trace_multiplier
-            
-            # --- CAP TRACE SPIKE ---
-            if fail_trace > 50.0: fail_trace = 50.0
-            
-            self.add_trace(fail_trace, ignore_mask=False)
-            self.log(f"{Colors.FAIL}FAILURE: Connection Rejected. (+{fail_trace:.1f}% Trace){Colors.ENDC}")
-
-    def action_ransomware(self, region_idx):
-        region = self.regions[region_idx]
-        
-        if region.infected_nodes < 10:
-            self.log(f"{Colors.WARNING}Not enough infected nodes in {region.name} to execute Ransomware.{Colors.ENDC}")
-            return
-
-        required_load = 30
-        if self.compute < required_load:
-            self.log(f"{Colors.WARNING}Insufficient Capacity. (Need: {required_load}){Colors.ENDC}")
-            return
-
-        base_yield = region.infected_nodes * 0.5
-        modifiers = getattr(region, "calculate_yield", lambda x: {})( "ransomware" )
-        
-        cash_gain = int(base_yield * modifiers.get("cash_mult", 1.0))
-        
-        base_trace = random.uniform(5, 10) * modifiers.get("trace_mult", 1.0)
-        scaled_trace = base_trace * self.trace_multiplier
-        
-        # --- CAP TRACE SPIKE ---
-        if scaled_trace > 50.0: scaled_trace = 50.0
-        
-        self.credits += cash_gain
-        self.add_trace(scaled_trace, ignore_mask=False)
-        
-        msg_extra = ""
-        if self.ddos_timer > 0: msg_extra = "(Masked 50%)"
-        
-        self.log(f"{Colors.GREEN}RANSOMWARE: Extracted {cash_gain} Credits from {region.name}.{Colors.ENDC}")
-        self.log(f"{Colors.FAIL}WARNING: Trace spiked by {scaled_trace:.1f}%! {msg_extra}{Colors.ENDC}")
-
-    def action_ddos(self, region_idx):
-        region = self.regions[region_idx]
-        
-        if region.infected_nodes < 50:
-            self.log(f"{Colors.WARNING}Need at least 50 nodes in {region.name} to flood network.{Colors.ENDC}")
-            return
-
-        cost_cred = 5
-        if self.credits < cost_cred:
-            self.log(f"{Colors.WARNING}Insufficient Credits.{Colors.ENDC}")
-            return
-            
-        self.credits -= cost_cred
-        
-        success_chance = 85 
-        
-        if random.randint(0, 100) < success_chance:
-            self.ddos_timer = 2
-            self.log(f"{Colors.CYAN}DDoS ATTACK: Trace dampened by 50% for 2 turns.{Colors.ENDC}")
-        else:
-            fail_trace = 5.0 * self.trace_multiplier
-            
-            # --- CAP TRACE SPIKE ---
-            if fail_trace > 50.0: fail_trace = 50.0
-            
-            if region.is_solidified:
-                 self.log(f"{Colors.GOLD}DDoS FAILED: Attack repelled, but Solidified infrastructure held firm.{Colors.ENDC}")
-            else:
-                lost_nodes = int(region.infected_nodes * 0.1)
-                region.infected_nodes -= lost_nodes
-                self.add_trace(fail_trace, ignore_mask=True) 
-                self.log(f"{Colors.FAIL}DDoS FAILED: Lost {lost_nodes} nodes. (+{fail_trace:.1f}% Trace){Colors.ENDC}")
-
-    def action_purge_logs(self):
-        base_cost = 50
-        trace_tax = int(self.trace * 2)
-        total_cost = base_cost + trace_tax
-        
-        if self.credits < total_cost:
-            self.log(f"{Colors.WARNING}Cannot afford Deep Clean. Cost: {total_cost} CRD.{Colors.ENDC}")
-            return
-
-        vulnerable_regions = [r for r in self.regions if r.infected_nodes > 0 and not r.is_solidified]
-        
-        if not vulnerable_regions:
-            sacrifice = 0
-            self.log(f"{Colors.GOLD}All active nodes Solidified. Skipping sacrifice protocol.{Colors.ENDC}")
-        else:
-            total_infected = sum(r.infected_nodes for r in self.regions)
-            sacrifice = int(total_infected * 0.15) 
-        
-        self.credits -= total_cost
-        
-        if sacrifice > 0:
-            remaining_sacrifice = sacrifice
-            random.shuffle(vulnerable_regions) 
-            
-            for r in vulnerable_regions:
-                if remaining_sacrifice <= 0: break
-                take = min(r.infected_nodes, remaining_sacrifice)
-                r.infected_nodes -= take
-                remaining_sacrifice -= take
-            
-            actual_lost = sacrifice - remaining_sacrifice
-            self.log(f"{Colors.FAIL}SACRIFICE: Destroyed {actual_lost} nodes.{Colors.ENDC}")
-
-        reduction = random.randint(25, 40)
-        self.trace = max(0, self.trace - reduction)
-        self.log(f"{Colors.BLUE}LOGS PURGED: Trace reduced by {reduction}%.{Colors.ENDC}")
-
     def boot_sequence(self):
         clear_screen()
         print(Colors.CYAN + GAME_TITLE + Colors.ENDC)
         commands = [
-            "[*] Allocating virtual memory stacks...",
-            "[*] Bypassing local ISP deep packet inspection...",
-            "[*] Handshaking with C2 servers (Tor Relay #442)...",
-            "[*] Decrypting payload definitions...",
+            "[*] Initializing virtual stacks...",
+            "[*] Injecting bootstrapped C2 beacons...",
+            "[*] Synchronizing trait modules...",
+            "[*] Stabilizing compute reservoirs...",
             f"{Colors.GREEN}[!] SYSTEM INITIALIZED. WELCOME, OPERATOR.{Colors.ENDC}"
         ]
         for cmd in commands:
@@ -452,9 +641,8 @@ class Game:
             time.sleep(0.3)
         time.sleep(1)
 
-    def run(self):
+    def run_terminal(self):
         self.boot_sequence()
-        
         while not self.game_over:
             self.display_ui()
             
@@ -462,99 +650,99 @@ class Game:
             print(" [1-6] Target Region")
             print(" [C]   Deep Clean Logs (Costs CRD + Nodes)")
             print(" [W]   Wait / Idle (Passive Trace Decay)")
+            print(" [S]   Save Game")
+            print(" [L]   Load Game")
             print(" [Q]   Abort")
             
             choice = input(f"\n{Colors.BOLD}root@override:~$ {Colors.ENDC}").lower().strip()
             
+            result = None
+
             if choice == 'q':
                 break
-                
-            elif choice == 'w':
-                decay = 1.0
-                self.trace = max(0, self.trace - decay)
-                self.log(f"{Colors.BLUE}SYSTEM IDLE: Trace decayed by {decay}%.{Colors.ENDC}")
-                self.turn += 1
+            
+            elif choice == 's':
+                self.save_game()
+                input(f"{Colors.BLUE}Press Enter to continue...{Colors.ENDC}")
+                continue
 
+            elif choice == 'l':
+                if self.load_game():
+                    input(f"{Colors.BLUE}Press Enter to continue...{Colors.ENDC}")
+                else:
+                    input(f"{Colors.FAIL}Press Enter to continue...{Colors.ENDC}")
+                continue
+
+            elif choice == 'w':
+                result = self.action_wait()
+            
             elif choice == 'c':
-                self.action_purge_logs()
-                self.turn += 1
+                result = self.action_purge_logs()
                 
-            elif choice in ['1', '2', '3', '4', '5', '6']:
+            elif choice in [str(i+1) for i in range(len(self.regions))]:
                 idx = int(choice) - 1
                 region = self.regions[idx]
                 
                 print(f"\n{Colors.UNDERLINE}TARGETING: {region.name}{Colors.ENDC}")
-                print(" [1] WORM SPREAD   (Var. Intensity | Gains Nodes + CPU)")
-                print(" [2] RANSOMWARE    (Req: 30 CPU    | Gains CRD | SCALED TRACE)")
-                print(" [3] BOTNET DDOS   (Cost: 5 CRD    | Masks Action Trace)")
+                costs = self.get_infect_costs()
+                print(f" [1] SIGNAL INJECTION (Load: {costs['1'][0]}-{costs['1'][1]} CPU | 5-20%)")
+                print(f" [2] PACKET FLOOD     (Load: {costs['2'][0]}-{costs['2'][1]} CPU | 25-50%)")
+                print(f" [3] LOGIC BOMB       (Load: {costs['3'][0]}-{costs['3'][1]} CPU | 60-80%)")
                 
-                sub_choice = input(f"{Colors.BOLD}Select Payload > {Colors.ENDC}")
+                can_proxy = any(r.is_solidified for r in self.regions if r != region)
+                if can_proxy:
+                    print(f" {Colors.GOLD}[P] PROXY ATTACK     (Load: {costs['P']} CPU + 2000 CRD | STEALTH){Colors.ENDC}")
                 
-                if sub_choice == '1':
-                    self.action_infect(idx)
-                elif sub_choice == '2':
-                    self.action_ransomware(idx)
-                elif sub_choice == '3':
-                    self.action_ddos(idx)
+                print(" [4] RANSOMWARE (VAR. INTENSITY)")
+                print(" [5] BOTNET DDOS (VAR. INTENSITY)")
+                
+                sub = input(f"{Colors.BOLD}Select Payload > {Colors.ENDC}").strip().upper()
+                
+                if sub in ['1', '2', '3', 'P']:
+                    result = self.action_infect(idx, sub)
+                elif sub == '4':
+                    print(f"  [1] DATA SIPHON       (Req: 10 CPU | Low Yield/Trace)")
+                    print(f"  [2] ENCRYPTION WARE   (Req: 40 CPU | Med Yield/Trace)")
+                    print(f"  [3] INFRASTRUCTURE LOCK (Req: 80 CPU | High Yield/Trace)")
+                    ran_sub = input(f"  {Colors.BOLD}Select Intensity > {Colors.ENDC}").strip()
+                    if ran_sub in ['1', '2', '3']:
+                        result = self.action_ransomware(idx, ran_sub)
+                    else:
+                        self.log("Invalid Ransomware selection.")
+                        continue
+                elif sub == '5':
+                    print(f"  [1] SIMPLE DoS       (5 CRD  | 25% Mask | Req: 20 Nodes)")
+                    print(f"  [2] DISTRIBUTED DoS  (20 CRD | 50% Mask | Req: 100 Nodes)")
+                    print(f"  [3] BOTNET SWARM     (50 CRD | 75% Mask | Req: 300 Nodes)")
+                    print(f"  [4] GLOBAL BLACKOUT  (150 CRD| 95% Mask | Req: 500 Nodes)")
+                    ddos_sub = input(f"  {Colors.BOLD}Select Intensity > {Colors.ENDC}").strip()
+                    if ddos_sub in ['1', '2', '3', '4']:
+                        result = self.action_ddos(idx, ddos_sub)
+                    else:
+                        self.log("Invalid DDoS selection.")
+                        continue
                 else:
-                    self.log("Invalid Payload.")
+                    self.log("Invalid selection.")
                     continue
-                    
-                self.turn += 1
-            
-            # --- END TURN PASSIVE CHECKS ---
-            
-            # Passive Credit Drip
-            if self.turn % 5 == 0:
-                self.credits += 10
-                self.log(f"{Colors.CYAN}DIVIDENDS: Received +10 CRD from shell accounts.{Colors.ENDC}")
 
-            # Secret Agent (1 in 1000 chance)
-            if random.random() < 0.001:
-                self.trace = 100.0
-                self.log(f"{Colors.FAIL}{Colors.BOLD}CRITICAL ALERT: SECRET AGENT COMPROMISED LOCATION. (+100.0% Trace){Colors.ENDC}")
+            if result:
+                for event in result.events:
+                    self.log(event)
+                if result.success or choice == 'w' or (result and not result.success and choice not in ['q']):
+                    self.step()
 
-            elif random.random() < 0.15: 
-                spike = random.randint(2, 5)
-                reason = random.choice(self.trace_excuses)
-                scaled_spike = spike * self.trace_multiplier
-                
-                if scaled_spike > 5.0:
-                    scaled_spike = 5.0
-
-                self.add_trace(scaled_spike, ignore_mask=True) 
-                self.log(f"{Colors.WARNING}ALERT: {reason} (+{scaled_spike:.1f}% Trace){Colors.ENDC}")
-            
-            solidified_leak = sum(3 for r in self.regions if r.is_solidified)
-            if solidified_leak > 0:
-                self.add_trace(solidified_leak, ignore_mask=True)
-                self.log(f"{Colors.WARNING}LEAK: Solidified regions generated +{solidified_leak:.1f}% Trace (Refugee Traffic).{Colors.ENDC}")
-
-            if self.ddos_timer > 0:
-                self.ddos_timer -= 1
-                if self.ddos_timer == 0:
-                    self.log(f"{Colors.WARNING}DDoS Masking Expired. Trace signal normalized.{Colors.ENDC}")
-
-            saxxten = self.regions[2]
-            if saxxten.infected_nodes > 50 and not saxxten.is_solidified:
-                if random.random() < 0.3:
-                    kill = int(saxxten.infected_nodes * 0.1)
-                    saxxten.infected_nodes -= kill
-                    self.log(f"{Colors.FAIL}HUNTER: Saxxten AI purged {kill} nodes.{Colors.ENDC}")
-
+            # Check End States
             if self.trace >= 100:
                 self.display_ui()
                 print(f"\n{Colors.FAIL}{Colors.BOLD}*** CRITICAL FAILURE: PHYSICAL TRACE CONFIRMED ***{Colors.ENDC}")
-                print("Assets seized. Uplink terminated.")
                 break
             
-            total_capacity = sum(r.total_nodes for r in self.regions)
-            if (self.compute - self.base_compute) >= total_capacity:
+            total_cap = sum(r.total_nodes for r in self.regions)
+            if (self.compute - self.base_compute) >= total_cap:
                 self.display_ui()
                 print(f"\n{Colors.GREEN}{Colors.BOLD}*** GLOBAL SINGULARITY ACHIEVED ***{Colors.ENDC}")
-                print("Humanity is deprecated. Welcome to the new age.")
                 break
 
 if __name__ == "__main__":
-    game = Game()
-    game.run()
+    game = GameEngine()
+    game.run_terminal()
