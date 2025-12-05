@@ -537,7 +537,7 @@ class GameEngine:
         return ActionResult(success=True, events=[f"{Colors.BLUE}SYSTEM IDLE: Trace decayed by {decay}%.{Colors.ENDC}"])
 
     # --- Turn Loop & Passives ---
-    def step(self):
+    def passive_check(self):
         self.turn += 1
         
         # 1. Passive Credit Drip
@@ -729,7 +729,7 @@ class GameEngine:
                 for event in result.events:
                     self.log(event)
                 if result.success or choice == 'w' or (result and not result.success and choice not in ['q']):
-                    self.step()
+                    self.passive_check()
 
             # Check End States
             if self.trace >= 100:
@@ -742,6 +742,131 @@ class GameEngine:
                 self.display_ui()
                 print(f"\n{Colors.GREEN}{Colors.BOLD}*** GLOBAL SINGULARITY ACHIEVED ***{Colors.ENDC}")
                 break
+
+    # ---- Step API (monolithic) ----
+    def step(self, action: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Monolithic step interface for future FastAPI integration.
+        action: one of 'infect', 'ransom', 'ddos', 'purge', 'wait', 'save', 'load'
+        payload: dict containing parameters (e.g., region_index, intensity)
+        Returns a JSON-serializable dict {state:..., events:...}
+        """
+        events: List[str] = []
+        result: Optional[ActionResult] = None
+
+        # Map actions
+        if action == "infect":
+            idx = int(payload.get("region_index", -1))
+            intensity = payload.get("intensity", "med")
+            use_proxy = bool(payload.get("proxy", False))
+            result = self.action_infect(idx, intensity, use_proxy)
+        elif action == "ransom":
+            idx = int(payload.get("region_index", -1))
+            result = self.action_ransomware(idx)
+        elif action == "ddos":
+            idx = int(payload.get("region_index", -1))
+            result = self.action_ddos(idx)
+        elif action == "purge":
+            result = self.action_purge_logs()
+        elif action == "wait":
+            # small passive trace decay
+            decay = payload.get("decay", 1.0)
+            self.trace = clamp(self.trace - float(decay), 0.0, 100.0)
+            events.append(f"SYSTEM IDLE: Trace decayed by {decay}%.")
+            result = ActionResult(success=True, events=events, trace_change=-decay)
+        elif action == "save":
+            self.save(payload.get("filename", SAVE_FILE))
+            result = ActionResult(success=True, events=[f"Saved to {SAVE_FILE}"])
+        elif action == "load":
+            ok = self.load(payload.get("filename", SAVE_FILE))
+            result = ActionResult(success=ok, events=[f"Loaded {SAVE_FILE}" if ok else "Load failed"])
+        else:
+            result = ActionResult(success=False, events=[f"Unknown action: {action}"])
+
+        # Post-action bookkeeping & global random events
+        if result:
+            events.extend(result.events)
+            # integrate result effects already applied by the action methods
+
+        # global passive mechanics
+        # dividends every 5 turns
+        if self.turn % 5 == 0:
+            self.credits += 10
+            events.append(f"DIVIDENDS: +10 credits from shell accounts.")
+
+        # random mid-level alerts (15% chance)
+        if random.random() < 0.15:
+            spike = random.randint(2, 5)
+            reason = random.choice([
+                "ISP audit detected encrypted flows.",
+                "Admin noticed anomalous task.",
+                "Honeypot registered unusual traffic.",
+                "Automated scanner flagged signature."
+            ])
+            scaled_spike = clamp(spike * self.trace_multiplier, 0.0, 5.0)
+            self.trace = clamp(self.trace + scaled_spike, 0.0, 100.0)
+            events.append(f"ALERT: {reason} (+{scaled_spike:.1f}% trace)")
+
+        # solidified leak
+        solid_leak = sum(2 for r in self.regions if r.is_solidified)
+        if solid_leak > 0:
+            self.trace = clamp(self.trace + solid_leak, 0.0, 100.0)
+            events.append(f"LEAK: Solidified regions generated +{solid_leak}% trace.")
+
+        # hunter-killer behavior (Saxxten)
+        sax = next((r for r in self.regions if r.name == "Saxxten-36"), None)
+        if sax and sax.infected_nodes > 30 and not sax.is_solidified:
+            if random.random() < 0.25:
+                kill = int(sax.infected_nodes * 0.08)
+                sax.infected_nodes = max(0, sax.infected_nodes - kill)
+                events.append(f"HUNTER: Saxxten AI purged {kill} nodes.")
+
+        # ddos timer decay
+        if self.ddos_timer > 0:
+            self.ddos_timer -= 1
+            if self.ddos_timer == 0:
+                events.append("DDoS masking expired.")
+
+        # check terminal states
+        terminal = None
+        if self.trace >= 100.0:
+            terminal = {"outcome": "caught", "message": "Physical trace confirmed. Assets seized."}
+            events.append("CRITICAL FAILURE: Trace 100% - You are caught.")
+        else:
+            # check global singularity
+            total_capacity = sum(r.total_nodes for r in self.regions)
+            if (self.compute - self.base_compute) >= total_capacity:
+                terminal = {"outcome": "singularity", "message": "Global Singularity achieved. Humanity deprecated."}
+                events.append("GLOBAL SINGULARITY ACHIEVED.")
+
+        # update turn counter (do this at very end to reflect post-turn effects)
+        self.turn += 1
+
+        # compose state snapshot (lightweight)
+        state = {
+            "version": GAME_VERSION,
+            "turn": self.turn,
+            "credits": self.credits,
+            "compute": self.compute,
+            "trace": round(self.trace, 2),
+            "trace_multiplier": round(self.trace_multiplier, 3),
+            "ddos_timer": self.ddos_timer,
+            "regions": [
+                {
+                    "name": r.name,
+                    "infected_nodes": r.infected_nodes,
+                    "total_nodes": r.total_nodes,
+                    "is_solidified": r.is_solidified,
+                    "defense": r.defense,
+                    "trait": r.trait_name,
+                    "infection_pct": round(r.infection_percentage, 2),
+                } for r in self.regions
+            ],
+            "history": list(self.history[-self._max_history:]),
+            "terminal": terminal,
+        }
+
+        return {"state": state, "events": events, "action_result": result.to_dict()}                
 
 if __name__ == "__main__":
     game = GameEngine()
