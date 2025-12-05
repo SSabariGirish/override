@@ -19,7 +19,7 @@ app = FastAPI(title="Override Protocol API")
 # Configure CORS to allow your React frontend (default is port 3000 or Vite's 5173)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173","override-ashy.vercel.app"], 
+    allow_origins=["http://localhost:3000", "http://localhost:5173","https://override-ashy.vercel.app"], 
     allow_methods=["*"],
     allow_headers=["*"],
 )
