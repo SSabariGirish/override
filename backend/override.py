@@ -167,7 +167,7 @@ class GameEngine:
         total_infected = sum(r.infected_nodes for r in self.regions)
         # Cap at 10.0x so late game is playable but hard
         raw_mult = 1.0 + (total_infected / 200.0)
-        return min(raw_mult, 10.0)
+        return min(raw_mult, 20.0)
 
     # --- Core Logic Helpers ---
     def log(self, msg):
@@ -413,11 +413,8 @@ class GameEngine:
         base_yield = region.infected_nodes * yield_mult
         
         # Diminishing Returns for Dominated Regions
-        diminish_factor = 1.0
-        if region.is_solidified:
-            # Drop 10% per attempt, capped at 10% min
-            diminish_factor = max(0.1, 1.0 - (region.ransom_count * 0.1))
-            region.ransom_count += 1
+        region.ransom_count += 1
+        diminish_factor = max(0.20, 1.0 - (region.ransom_count * 0.1))
             
         final_yield_mult = region.trait.on_ransom_multiplier() * diminish_factor
         cash_gain = int(base_yield * final_yield_mult)

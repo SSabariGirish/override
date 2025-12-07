@@ -1,20 +1,26 @@
 {
-  "credits": 0,
+  "credits": 948,
   "base_compute": 50,
-  "trace": 0,
-  "turn": 4,
+  "trace": 100.0,
+  "turn": 17,
   "ddos_timer": 0,
   "ddos_effectiveness": 0.0,
   "history_log": [
-    "Game RESTARTED.",
-    "\u001b[94mGame Saved to override_save.json.\u001b[0m"
+    "\u001b[93mALERT: Malware signature matched a known database. (+5.0% Trace)\u001b[0m",
+    "\u001b[93mLEAK: Solidified regions generated +1.0% Trace.\u001b[0m",
+    "\u001b[94mGame Saved to override_save.json.\u001b[0m",
+    "\u001b[94mGame Saved to override_save.json.\u001b[0m",
+    "\u001b[93mLEAK: Solidified regions generated +1.0% Trace.\u001b[0m",
+    "\u001b[94mGame Saved to override_save.json.\u001b[0m",
+    "\u001b[94mGame Saved to override_save.json.\u001b[0m",
+    "\u001b[93mLEAK: Solidified regions generated +1.0% Trace.\u001b[0m"
   ],
   "regions": [
     {
       "name": "Elystrion",
       "total_nodes": 800,
       "defense": 5,
-      "infected_nodes": 0,
+      "infected_nodes": 800,
       "ransom_count": 0,
       "trait_name": "CORPORATE VAULT"
     },
@@ -22,7 +28,7 @@
       "name": "Sylthara Bloom",
       "total_nodes": 3000,
       "defense": 2,
-      "infected_nodes": 0,
+      "infected_nodes": 1361,
       "ransom_count": 0,
       "trait_name": "IOT SWARM"
     },
